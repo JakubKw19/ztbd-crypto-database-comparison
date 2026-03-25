@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  # 1. PostgreSQL (Standardowy)
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. TimescaleDB (Na osobnym porcie 5433)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: timescale_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ts_user
+      POSTGRES_PASSWORD: ts_password
+      POSTGRES_DB: timescale_db
+    ports:
+      - "5433:5432" # Mapped to 5433 locally to avoid conflict with standard Postgres
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+
+  # 3. MongoDB
+  mongodb:
+    image: mongo:latest
+    container_name: mongo_db
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo_admin
+      MONGO_INITDB_ROOT_PASSWORD: mongo_password
+      MONGO_INITDB_DATABASE: crypto_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  # 4. InfluxDB (v2) - Dodano automatyczny TOKEN
+  influxdb:
+    image: influxdb:latest
+    container_name: influx_db
+    restart: unless-stopped
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=password12345
+      - DOCKER_INFLUXDB_INIT_ORG=my_org
+      - DOCKER_INFLUXDB_INIT_BUCKET=crypto_bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token-123 # Ważne dla Twojego InfluxProvidera!
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+
+volumes:
+  postgres_data:
+  timescaledb_data:
+  mongodb_data:
+  influxdb_data:
+  influxdb_config:

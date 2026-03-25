@@ -1,0 +1,19 @@
+{
+  "scripts": {
+    "migrate": "ts-node src/migrator.ts",
+    "start": "ts-node src/main.ts"
+  },
+  "dependencies": {
+    "@influxdata/influxdb-client": "^1.35.0",
+    "axios": "^1.13.6",
+    "mongodb": "^7.1.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.9.36",
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}
