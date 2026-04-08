@@ -3,7 +3,7 @@
     "migrate": "ts-node src/migrator.ts",
     "start": "ts-node src/main.ts",
     "seed": "ts-node src/seeder.ts",
-    "benchmark": "ts-node src/benchmark.ts"
+    "benchmark_pg": "ts-node src/benchmark_pg.ts"
   },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.35.0",

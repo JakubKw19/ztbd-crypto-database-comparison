@@ -2,7 +2,7 @@ export const DB_CONFIG = {
   postgres: {
     user: "user",
     host: "localhost",
-    database: "postgres_db",
+    database: "postgres_data",
     password: "password",
     port: 5432,
   },
