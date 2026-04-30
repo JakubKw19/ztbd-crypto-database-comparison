@@ -3,17 +3,23 @@
     "migrate": "ts-node src/migrator.ts",
     "start": "ts-node src/main.ts",
     "seed": "ts-node src/seeder.ts",
-    "benchmark_pg": "ts-node src/benchmark_pg.ts"
+    "benchmark_pg": "ts-node src/benchmark_pg.ts",
+    "benchmark_mongo": "ts-node src/benchmark_mongo.ts",
+    "benchmark_influx": "ts-node src/benchmark_influx.ts",
+    "benchmark_all": "node --max-old-space-size=8192 -r ts-node/register src/benchmark_runner.ts",
+    "explain": "ts-node src/analyze_explain.ts"
   },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.35.0",
     "axios": "^1.13.6",
+    "exceljs": "^4.4.0",
     "mongodb": "^7.1.1",
+    "perf_hooks": "^0.0.1",
     "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/pg": "^8.20.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2"

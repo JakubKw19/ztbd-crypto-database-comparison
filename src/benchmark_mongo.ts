@@ -1,89 +1,374 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, Db } from "mongodb";
 import { performance } from "perf_hooks";
 import { DB_CONFIG } from "./config";
+import { BenchmarkResult } from "./benchmark_types";
 
+// --- 24 SCENARIUSZE DLA MONGODB (Odpowiedniki SQL) ---
 const mongoScenarios = [
-    // CREATE
-    { id: "C1", type: "CREATE", name: "Pojedynczy INSERT", op: (c: any) => c.insertOne({ timestamp: new Date(), price: 50000, volume: 1.5 }) },
-    { id: "C2", type: "CREATE", name: "Insert Log", op: (c: any) => c.insertOne({ endpoint: '/api/test', status: 200 }) },
-    { id: "C3", type: "CREATE", name: "Upsert", op: (c: any) => c.updateOne({ name: 'Binance' }, { $set: { trust: 10 } }, { upsert: true }) },
-    { id: "C4", type: "CREATE", name: "Insert OrderBook", op: (c: any) => c.insertOne({ type: 'orderbook', bid: 49999, ask: 50001 }) },
-    { id: "C5", type: "CREATE", name: "Insert OHLC", op: (c: any) => c.insertOne({ type: 'ohlc', open: 50000, close: 50500 }) },
-    { id: "C6", type: "CREATE", name: "Batch INSERT", op: (c: any) => c.insertMany([{ price: 100 }, { price: 101 }, { price: 102 }]) },
+  // --- CREATE (ZAPIS) ---
+  {
+    id: "C1",
+    type: "CREATE",
+    name: "Pojedynczy INSERT (Tick)",
+    op: async (db: Db) =>
+      db.collection("market_ticks").insertOne({
+        time: new Date(),
+        pair_id: 1,
+        price: 50000.0,
+        volume_24h: 1.5,
+        last_side: "buy",
+      }),
+  },
+  {
+    id: "C2",
+    type: "CREATE",
+    name: "Pojedynczy INSERT (Log API)",
+    op: async (db: Db) =>
+      db.collection("api_logs").insertOne({
+        exchange_id: 1,
+        endpoint: "/api/v3/ticker",
+        response_time_ms: 45,
+        status_code: 200,
+      }),
+  },
+  {
+    id: "C3",
+    type: "CREATE",
+    name: "INSERT z naruszeniem unikalności (UPSERT)",
+    op: async (db: Db) =>
+      db
+        .collection("exchanges")
+        .updateOne(
+          { name: "Binance" },
+          { $set: { trust_score: 10 } },
+          { upsert: true },
+        ),
+  },
+  {
+    id: "C4",
+    type: "CREATE",
+    name: "Wstawienie do Order Book",
+    op: async (db: Db) =>
+      db.collection("order_book_depth").insertOne({
+        time: new Date(),
+        pair_id: 1,
+        best_bid: 49999.0,
+        best_ask: 50001.0,
+        spread: 2.0,
+      }),
+  },
+  {
+    id: "C5",
+    type: "CREATE",
+    name: "Wstawienie agregatu OHLC",
+    op: async (db: Db) =>
+      db.collection("ohlc_data").insertOne({
+        time: new Date(),
+        pair_id: 1,
+        open_price: 50000,
+        high_price: 51000,
+        low_price: 49000,
+        close_price: 50500,
+      }),
+  },
+  {
+    id: "C6",
+    type: "CREATE",
+    name: "Masowy INSERT (Batch 5 rekordów)",
+    op: async (db: Db) =>
+      db.collection("market_ticks").insertMany([
+        { time: new Date(), pair_id: 1, price: 100 },
+        { time: new Date(), pair_id: 1, price: 101 },
+        { time: new Date(), pair_id: 1, price: 102 },
+        { time: new Date(), pair_id: 1, price: 103 },
+        { time: new Date(), pair_id: 1, price: 104 },
+      ]),
+  },
 
-    // READ
-    { id: "R1", type: "READ", name: "Prosty Find + Limit", op: (c: any) => c.find({}).limit(1000).toArray() },
-    { id: "R2", type: "READ", name: "Filtrowanie po cenie", op: (c: any) => c.find({ price: { $gt: 40000 } }).limit(1000).toArray() },
-    { id: "R3", type: "READ", name: "Agregacja (AVG/MAX)", op: (c: any) => c.aggregate([{ $group: { _id: "$pair_id", avgPrice: { $avg: "$price" }, maxPrice: { $max: "$price" } } }]).toArray() },
-    { id: "R4", type: "READ", name: "Złożone wyszukiwanie ($or)", op: (c: any) => c.find({ $or: [{ price: { $gt: 60000 } }, { volume: { $gt: 10 } }] }).toArray() },
-    { id: "R5", type: "READ", name: "Grupowanie w czasie", op: (c: any) => c.aggregate([{ $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$timestamp" } }, totalVol: { $sum: "$volume" } } }]).toArray() },
-    { id: "R6", type: "READ", name: "Wyszukiwanie regex", op: (c: any) => c.find({ endpoint: { $regex: /api/ } }).limit(100).toArray() },
+  // --- READ (ODCZYT) ---
+  {
+    id: "R1",
+    type: "READ",
+    name: "Prosty SELECT z limitem",
+    op: async (db: Db) =>
+      db
+        .collection("market_ticks")
+        .find()
+        .sort({ time: -1 })
+        .limit(1000)
+        .toArray(),
+  },
+  {
+    id: "R2",
+    type: "READ",
+    name: "Filtrowanie po czasie",
+    op: async (db: Db) => {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      return db
+        .collection("market_ticks")
+        .find({ time: { $gte: d } })
+        .toArray();
+    },
+  },
+  {
+    id: "R3",
+    type: "READ",
+    name: "Agregacja (AVG, MAX, MIN)",
+    op: async (db: Db) =>
+      db
+        .collection("market_ticks")
+        .aggregate([
+          { $match: { pair_id: 1 } },
+          {
+            $group: {
+              _id: null,
+              avgPrice: { $avg: "$price" },
+              maxPrice: { $max: "$price" },
+              minPrice: { $min: "$price" },
+            },
+          },
+        ])
+        .toArray(),
+  },
+  {
+    id: "R4",
+    type: "READ",
+    name: "Złożony JOIN (3 tabele - lookup)",
+    op: async (db: Db) =>
+      db
+        .collection("market_ticks")
+        .aggregate([
+          { $match: { price: { $gt: 40000 } } },
+          { $limit: 1000 },
+          {
+            $lookup: {
+              from: "trading_pairs",
+              localField: "pair_id",
+              foreignField: "_id",
+              as: "pair",
+            },
+          },
+          {
+            $lookup: {
+              from: "exchanges",
+              localField: "pair.exchange_id",
+              foreignField: "_id",
+              as: "exchange",
+            },
+          },
+        ])
+        .toArray(),
+  },
+  {
+    id: "R5",
+    type: "READ",
+    name: "Grupowanie (Time Bucket - wolumen per para)",
+    op: async (db: Db) =>
+      db
+        .collection("market_ticks")
+        .aggregate([
+          { $group: { _id: "$pair_id", totalVol: { $sum: "$volume_24h" } } },
+        ])
+        .toArray(),
+  },
+  {
+    id: "R6",
+    type: "READ",
+    name: "Podzapytanie (Ceny wyższe niż średnia)",
+    op: async (db: Db) => {
+      // W Mongo typowe podzapytanie wymaga 2 kroków (lub bardzo złożonego pipelinu)
+      const agg = await db
+        .collection("market_ticks")
+        .aggregate([{ $group: { _id: null, avg: { $avg: "$price" } } }])
+        .toArray();
+      const avgPrice = agg[0]?.avg || 0;
+      return db
+        .collection("market_ticks")
+        .find({ price: { $gt: avgPrice } })
+        .limit(500)
+        .toArray();
+    },
+  },
 
-    // UPDATE
-    { id: "U1", type: "UPDATE", name: "Masowy Update (Mnożenie)", op: (c: any) => c.updateMany({ price: { $lt: 30000 } }, { $mul: { volume: 1.1 } }) },
-    { id: "U2", type: "UPDATE", name: "Punktowy Update", op: (c: any) => c.updateOne({ symbol: 'BTCUSDT' }, { $set: { active: false } }) },
-    { id: "U3", type: "UPDATE", name: "Dodanie pola do dokumentów", op: (c: any) => c.updateMany({}, { $set: { migrated: true } }) },
-    { id: "U4", type: "UPDATE", name: "Update po dacie", op: (c: any) => c.updateMany({ timestamp: { $lt: new Date('2023-01-01') } }, { $set: { archived: true } }) },
-    { id: "U5", type: "UPDATE", name: "Inkrementacja logów", op: (c: any) => c.updateMany({ status: 500 }, { $inc: { retry_count: 1 } }) },
-    { id: "U6", type: "UPDATE", name: "Usunięcie pola ($unset)", op: (c: any) => c.updateMany({ price: { $lt: 0 } }, { $unset: { volume: "" } }) },
+  // --- UPDATE (AKTUALIZACJA) ---
+  {
+    id: "U1",
+    type: "UPDATE",
+    name: "Masowy UPDATE po warunku cenowym",
+    op: async (db: Db) =>
+      db
+        .collection("market_ticks")
+        .updateMany({ price: { $lt: 30000 } }, { $mul: { volume_24h: 1.1 } }),
+  },
+  {
+    id: "U2",
+    type: "UPDATE",
+    name: "Punktowy UPDATE po stringu",
+    op: async (db: Db) =>
+      db
+        .collection("trading_pairs")
+        .updateOne(
+          { symbol_on_exchange: "BTCUSDT" },
+          { $set: { is_active: false } },
+        ),
+  },
+  {
+    id: "U3",
+    type: "UPDATE",
+    name: "Aktualizacja słownika (exchanges)",
+    op: async (db: Db) =>
+      db
+        .collection("exchanges")
+        .updateOne({ name: "Binance" }, { $set: { trust_score: 9 } }),
+  },
+  {
+    id: "U4",
+    type: "UPDATE",
+    name: "Zmiana statusu w logach",
+    op: async (db: Db) =>
+      db
+        .collection("api_logs")
+        .updateMany(
+          { response_time_ms: { $gt: 5000 } },
+          { $set: { status_code: 500 } },
+        ),
+  },
+  {
+    id: "U5",
+    type: "UPDATE",
+    name: "Aktualizacja na podstawie daty",
+    op: async (db: Db) => {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return db
+        .collection("market_ticks")
+        .updateMany({ time: { $lt: d } }, { $set: { last_side: "unknown" } });
+    },
+  },
+  {
+    id: "U6",
+    type: "UPDATE",
+    name: "Aktualizacja wykorzystująca JOIN",
+    op: async (db: Db) => {
+      // Brak relacyjności wymusza pobranie ID do tablicy, a następnie wykonanie $in
+      const badExchanges = await db
+        .collection("exchanges")
+        .find({ trust_score: { $lt: 5 } })
+        .toArray();
+      const ids = badExchanges.map((e) => e._id);
+      return db
+        .collection("trading_pairs")
+        .updateMany(
+          { exchange_id: { $in: ids } },
+          { $set: { is_active: false } },
+        );
+    },
+  },
 
-    // DELETE
-    { id: "D1", type: "DELETE", name: "Usuwanie starych logów", op: (c: any) => c.deleteMany({ response_time_ms: { $gt: 1000 } }) },
-    { id: "D2", type: "DELETE", name: "Usuwanie anomalii", op: (c: any) => c.deleteMany({ price: { $lte: 0 } }) },
-    { id: "D3", type: "DELETE", name: "Usuwanie po dacie", op: (c: any) => c.deleteMany({ timestamp: { $lt: new Date('2020-01-01') } }) },
-    { id: "D4", type: "DELETE", name: "Punktowy Delete", op: (c: any) => c.deleteOne({ name: 'FakeExchange' }) },
-    { id: "D5", type: "DELETE", name: "Usuwanie po regexie", op: (c: any) => c.deleteMany({ endpoint: { $regex: /test/ } }) },
-    { id: "D6", type: "DELETE", name: "Czyszczenie błędów", op: (c: any) => c.deleteMany({ status: 404 }) }
+  // --- DELETE (USUWANIE) ---
+  {
+    id: "D1",
+    type: "DELETE",
+    name: "Czyszczenie starych logów",
+    op: async (db: Db) =>
+      db.collection("api_logs").deleteMany({ response_time_ms: { $gt: 1000 } }),
+  },
+  {
+    id: "D2",
+    type: "DELETE",
+    name: "Usuwanie anomalii cenowych",
+    op: async (db: Db) =>
+      db.collection("market_ticks").deleteMany({
+        $or: [{ price: { $lte: 0 } }, { volume_24h: { $lte: 0 } }],
+      }),
+  },
+  {
+    id: "D3",
+    type: "DELETE",
+    name: "Usuwanie danych starszych niż rok",
+    op: async (db: Db) => {
+      const d = new Date();
+      d.setDate(d.getDate() - 365);
+      return db.collection("market_ticks").deleteMany({ time: { $lt: d } });
+    },
+  },
+  {
+    id: "D4",
+    type: "DELETE",
+    name: "Punktowy DELETE (Pusta giełda)",
+    op: async (db: Db) =>
+      db.collection("exchanges").deleteOne({ name: "FakeExchange" }),
+  },
+  {
+    id: "D5",
+    type: "DELETE",
+    name: "Czyszczenie arkusza zleceń dla pary",
+    op: async (db: Db) =>
+      db.collection("order_book_depth").deleteMany({ pair_id: 999 }),
+  },
+  {
+    id: "D6",
+    type: "DELETE",
+    name: "Usuwanie błędnych statusów API",
+    op: async (db: Db) =>
+      db.collection("api_logs").deleteMany({ status_code: 404 }),
+  },
 ];
 
-async function runBenchmarkMongo() {
-    const client = new MongoClient(DB_CONFIG.mongo.uri);
-    await client.connect();
-    const db = client.db('crypto_db');
-    const collection = db.collection('market_ticks');
-    console.log("🚀 BENCHMARK: MONGODB (24 Scenariusze)");
+export async function runBenchmarkMongo(): Promise<BenchmarkResult[]> {
+  const client = new MongoClient(DB_CONFIG.mongo.uri);
+  await client.connect();
+  const db = client.db("crypto_db");
+  const results: BenchmarkResult[] = [];
+  console.log(`\n⏳ Uruchamianie testów dla: MongoDB...`);
 
+  try {
     try {
-        console.log("🧹 Usuwanie indeksów...");
-        await collection.dropIndexes();
+      await db.collection("market_ticks").dropIndexes();
+    } catch (e) {}
 
-        const resultsBefore = new Map<string, number>();
-        console.log("\n📊 FAZA 1: BEZ INDEKSÓW");
-        for (const s of mongoScenarios) {
-            const times = [];
-            for (let i = 0; i < 3; i++) {
-                const start = performance.now();
-                await s.op(collection);
-                const end = performance.now();
-                times.push(end - start);
-            }
-            const avg = times.reduce((a, b) => a + b, 0) / 3;
-            resultsBefore.set(s.id, avg);
-            console.log(`[${s.id}] ${s.name}: ${avg.toFixed(2)} ms`);
-        }
-
-        console.log("\n⚙️ Zakładanie indeksów...");
-        await collection.createIndex({ price: 1 });
-        await collection.createIndex({ timestamp: -1 });
-
-        console.log("\n📊 FAZA 2: Z INDEKSAMI");
-        for (const s of mongoScenarios) {
-            const times = [];
-            for (let i = 0; i < 3; i++) {
-                const start = performance.now();
-                await s.op(collection);
-                const end = performance.now();
-                times.push(end - start);
-            }
-            const avg = times.reduce((a, b) => a + b, 0) / 3;
-            const timeBefore = resultsBefore.get(s.id) || 0;
-            const diff = timeBefore > avg ? `🔥 -${(((timeBefore - avg) / timeBefore) * 100).toFixed(1)}%` : `🐌 Wolniej`;
-
-            console.log(`[${s.id}] Czas: ${avg.toFixed(2)} ms | Różnica: ${diff}`);
-        }
-    } finally {
-        await client.close();
+    const beforeMap = new Map<string, number>();
+    for (const s of mongoScenarios) {
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        await s.op(db);
+        times.push(performance.now() - start);
+      }
+      beforeMap.set(s.id, times.reduce((a, b) => a + b, 0) / 3);
     }
-}
 
-runBenchmarkMongo();
+    await db.collection("market_ticks").createIndex({ pair_id: 1 });
+    await db.collection("market_ticks").createIndex({ price: 1 });
+    await db.collection("market_ticks").createIndex({ time: -1 });
+
+    for (const s of mongoScenarios) {
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        await s.op(db);
+        times.push(performance.now() - start);
+      }
+      const timeAfter = times.reduce((a, b) => a + b, 0) / 3;
+      const timeBefore = beforeMap.get(s.id) || 0;
+      const diff =
+        timeBefore > timeAfter
+          ? `-${(((timeBefore - timeAfter) / timeBefore) * 100).toFixed(1)}%`
+          : `Wolniej`;
+
+      results.push({
+        database: "MongoDB",
+        id: s.id,
+        type: s.type,
+        name: s.name,
+        timeBefore: Number(timeBefore.toFixed(2)),
+        timeAfter: Number(timeAfter.toFixed(2)),
+        difference: diff,
+      });
+    }
+  } finally {
+    await client.close();
+  }
+  return results;
+}

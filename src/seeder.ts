@@ -4,13 +4,12 @@ import { InfluxDB, Point } from "@influxdata/influxdb-client";
 import { DB_CONFIG } from "./config";
 import { MarketTick } from "./types";
 
-// ==========================================
-// ⚙️ KONFIGURACJA TESTU (Zmieniaj te wartości)
-// ==========================================
+// KONFIGURACJA TESTU (Zmieniaj te wartości)
 // Krok 1: 500000 (Mały zbiór)
 // Krok 2: 1000000 (Średni zbiór)
 // Krok 3: 10000000 (Duży zbiór)
-const TOTAL_RECORDS = 500000;
+
+const TOTAL_RECORDS = 1000000;
 const BATCH_SIZE = 10000; // 10 000 rekordów na paczkę to optymalna wielkość
 
 async function seedData() {
@@ -81,7 +80,7 @@ async function seedData() {
         `[${progress}%] Zapisano paczkę ${Math.floor(i / BATCH_SIZE) + 1} w ${(batchEnd - batchStart).toFixed(0)}ms`,
       );
     } catch (err) {
-      console.error("❌ Błąd podczas zapisu paczki. Przerywam działanie.", err);
+      console.error("Błąd podczas zapisu paczki. Przerywam działanie.", err);
       break; // Przerywamy pętlę w razie błędu
     }
   }
@@ -97,9 +96,7 @@ async function seedData() {
   console.log("🎉 Zakończono seedowanie wszystkich baz!");
 }
 
-// ==========================================
-// 🛠️ FUNKCJE POMOCNICZE (Zapis do poszczególnych baz)
-// ==========================================
+// FUNKCJE POMOCNICZE (Zapis do poszczególnych baz)
 
 async function seedPostgres(pool: Pool, batch: MarketTick[]) {
   // Generowanie zapytania dla masowego insertu: INSERT INTO ... VALUES ($1,$2,$3,$4,$5), ($6,$7,$8,$9,$10) ...
